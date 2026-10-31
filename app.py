@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import mysql.connector
 from dotenv import load_dotenv
 import os
@@ -6,6 +6,7 @@ import os
 # Load env file
 load_dotenv()
 print("Database selected:", os.getenv("DB_NAME"))
+
 # Create Flask app instance
 app = Flask(__name__)
 
@@ -19,20 +20,35 @@ def get_db_connection():
         database=os.getenv("DB_NAME")
     )
 
+
 # Create initial function for flask app
 # Return results with GET request
 @app.route("/api/transactions", methods=["GET"])
 def get_transactions():
+
+    # Initialize db connection and cursor variable
     connection = None
     cursor = None
 
+    # Create platform filter
+    platform = request.args.get("platform")
+
     try:
+        # Establish connection to MySQL db
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
 
-        cursor.execute("SELECT * FROM transactions LIMIT 10")
+        if platform: 
+            query = """
+                SELECT * 
+                FROM transactions
+                WHERE Platform = %s
+                LIMIT 10    
+            """
+            cursor.execute(query, (platform,))
+        else: 
+            cursor.execute("SELECT * FROM transactions LIMIT 10")
         transactions = cursor.fetchall()
-
         return jsonify(transactions)
 
     # Log any database query error
@@ -42,15 +58,11 @@ def get_transactions():
 
     finally:
         # Close cursor object if created successfully and close connection 
-        if cursor is not None:
-            cursor.close()
-        if connection is not None and connection.is_connected():
-            connection.close()
+        cursor.close()
+        connection.close()
 
 
 # Run Flask server IF this specific file runs
 
 if __name__ == "__main__":
-    print(app.url_map)
-    app.run(debug=True, port=5050)
-    
+    app.run(debug=True, port=5001)
