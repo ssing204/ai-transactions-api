@@ -30,8 +30,18 @@ allowed_filters = {
     "unique_id": "unique_id"
 }
 
+# Sort options
+sorting_options = {
+    "platform": "platform",
+    "model": "model",
+    "unique_id": "unique_id",
+    "input_tokens": "input_tokens",
+    "input_cost": "input_cost",
+    "output_tokens": "output_tokens",
+    "output_cost": "output_cost",
+    "total_cost" : "total_cost"
+}
 
-# Create initial function for flask app
 # Return results with GET request
 @app.route("/api/transactions", methods=["GET"])
 def get_transactions():
@@ -63,32 +73,56 @@ def get_transactions():
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
 
-        # Read the limit from the URL
-        limit_raw = request.args.get("limit")
+        # Sort request
+        sort_by = request.args.get("sort_by")
+        order = request.args.get("order", "asc").lower()
 
-        if limit_raw is not None:
-            try:
-                limit = int(limit_raw)
-            except ValueError:
-                return jsonify({"error": "Limit must be an integer"}), 400
+        if sort_by:
+            if sort_by not in sorting_options:
+                return jsonify({"error": "Invalid sorting option"}), 400
+            if order not in ("asc", "desc"):
+                return jsonify({"error": "Order must be ascending or descending"}), 400
 
-            # Validate requested limit
-            if not 1 <= limit <= 100:
-                return jsonify({
-                    "error": "Limit must be between 1 and 100"
-                }), 400
+            column = sorting_options[sort_by]
 
-            # Add LIMIT clause to SQL query
-            query += " LIMIT %s"
-            values.append(limit)
+            query += f" ORDER BY `{column}` {order.upper()}"
 
-        # 6. Execute the query
+            # Break ties using the unique transaction number
+            if column != "transaction_number":
+                query += ", `transaction_number` ASC"
+
+        else:
+            # Default sorting when no sort_by is provided
+            query += " ORDER BY `transaction_number` ASC"
+
+        limit_raw = request.args.get("limit", "20")
+        page_raw = request.args.get("page", "1")
+
+        try:
+            limit = int(limit_raw)
+            page = int(page_raw)
+        except ValueError:
+            return jsonify({"error": "Invalid pagination parameters"}), 400
+
+        # Validate pagination parameters
+        if limit is None or not 1 <= limit <= 100:
+            return jsonify({"error": "Limit must be between 1 and 100"}), 400
+        if page is None or page < 1:
+            return jsonify({"error": "Page must be 1 or greater"}), 400
+
+        offset = (page - 1) * limit
+
+        # Add pagination to query
+        query += " LIMIT %s OFFSET %s"
+        values.extend([limit, offset])
+
+        print("Page:", page)
+        print("SQL query:", query)
+        print("Values:", values)
+
+        # Execute the query
         cursor.execute(query, tuple(values))
-
-        # 7. Retrieve the results
         transactions = cursor.fetchall()
-
-        # 8. Return results as JSON
         return jsonify(transactions)
         
     # Log any database query error
@@ -97,10 +131,10 @@ def get_transactions():
         return jsonify({"error": "Database request failed"}), 500
 
     finally:
-
-        # Close cursor object if created successfully and close connection 
-        cursor.close()
-        connection.close()
+        if cursor is not None:
+            cursor.close()
+        if connection is not None:
+            connection.close()
 
 
 # Run Flask server IF this specific file runs
